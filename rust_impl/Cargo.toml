@@ -19,6 +19,12 @@ chrono = { version = "0.4", features = ["serde"] }
 gethostname = "0.4"
 num_cpus = "1.16"
 glob = "0.3"
+plotters = "0.3"
+plotters-svg = "0.3"
+
+[[bin]]
+name = "nbody-viz"
+path = "src/bin/viz.rs"
 
 [profile.release]
 opt-level = 3

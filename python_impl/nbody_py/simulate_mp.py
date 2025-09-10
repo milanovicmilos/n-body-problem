@@ -1,148 +1,156 @@
 """
-Parallel N-body simulation implementation using multiprocessing
+Parallel N-body simulation implementation using multiprocessing with shared memory.
+
+This version uses multiprocessing.shared_memory to avoid copying large numpy arrays
+to worker processes. It's more stable for large N in production runs.
 """
 import time
 import math
 import multiprocessing as mp
 import numpy as np
+from multiprocessing import shared_memory
 from typing import Dict, Any, List, Tuple
-from .physics import NBodySystem, velocity_verlet_step
+from .physics import NBodySystem
 from .io_utils import (
-    create_output_directory, save_system_state, save_energy_data, 
+    create_output_directory, save_system_state, save_energy_data,
     save_metadata, save_initial_conditions
 )
 
+# Global references for worker processes (attached in initializer)
+_X = None
+_Y = None
+_Z = None
+_M = None
+_N = 0
+
+
+def _worker_init(x_name: str, y_name: str, z_name: str, m_name: str, n: int):
+    """Initializer for Pool workers: attach to shared memory segments."""
+    global _X, _Y, _Z, _M, _N
+    _N = n
+    _X = np.ndarray((n,), dtype=np.float64, buffer=shared_memory.SharedMemory(name=x_name).buf)
+    _Y = np.ndarray((n,), dtype=np.float64, buffer=shared_memory.SharedMemory(name=y_name).buf)
+    _Z = np.ndarray((n,), dtype=np.float64, buffer=shared_memory.SharedMemory(name=z_name).buf)
+    _M = np.ndarray((n,), dtype=np.float64, buffer=shared_memory.SharedMemory(name=m_name).buf)
+
 
 def compute_accelerations_chunk(args: Tuple) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Compute accelerations for a chunk of particles
-    
+    """Compute accelerations for a chunk using global shared arrays.
+
     Args:
-        args: Tuple containing (start_idx, end_idx, positions, masses, eps, G)
-        
+        args: (start_idx, end_idx, eps, G)
     Returns:
-        Tuple of acceleration arrays (ax, ay, az) for the chunk
+        (ax_chunk, ay_chunk, az_chunk)
     """
-    start_idx, end_idx, x, y, z, m, eps, G = args
-    n = len(x)
+    start_idx, end_idx, eps, G = args
+    n = _N
     chunk_size = end_idx - start_idx
-    
-    # Initialize acceleration arrays for this chunk
     ax_chunk = np.zeros(chunk_size, dtype=np.float64)
     ay_chunk = np.zeros(chunk_size, dtype=np.float64)
     az_chunk = np.zeros(chunk_size, dtype=np.float64)
-    
-    # Compute accelerations for particles in this chunk
+
     for i in range(chunk_size):
-        global_i = start_idx + i
-        
+        gi = start_idx + i
+        xi = _X[gi]
+        yi = _Y[gi]
+        zi = _Z[gi]
         for j in range(n):
-            if global_i == j:
+            if gi == j:
                 continue
-                
-            # Distance vector
-            dx = x[j] - x[global_i]
-            dy = y[j] - y[global_i]
-            dz = z[j] - z[global_i]
-            
-            # Distance squared with softening
-            r2 = dx*dx + dy*dy + dz*dz + eps*eps
+            dx = _X[j] - xi
+            dy = _Y[j] - yi
+            dz = _Z[j] - zi
+            r2 = dx * dx + dy * dy + dz * dz + eps * eps
             r = math.sqrt(r2)
-            
-            # Force magnitude factor
             inv_r3 = G / (r2 * r)
-            force_factor = m[j] * inv_r3
-            
-            # Accumulate accelerations
-            ax_chunk[i] += dx * force_factor
-            ay_chunk[i] += dy * force_factor
-            az_chunk[i] += dz * force_factor
-    
+            ff = _M[j] * inv_r3
+            ax_chunk[i] += dx * ff
+            ay_chunk[i] += dy * ff
+            az_chunk[i] += dz * ff
+
     return ax_chunk, ay_chunk, az_chunk
 
 
 def compute_accelerations_parallel(system: NBodySystem, num_processes: int, eps: float = 1e-2, G: float = 1.0):
-    """
-    Compute gravitational accelerations using parallel processing
-    """
+    """Compute gravitational accelerations using multiprocessing + shared memory."""
     n = system.n
-    
-    # For small N, use sequential computation to avoid overhead
+
+    # For small N or single process, fallback to naive
     if n < 500 or num_processes == 1:
         from .physics import compute_accelerations_naive
         compute_accelerations_naive(system, eps, G)
         return
-    
-    # Determine chunk sizes for each process
-    chunk_size = max(1, n // num_processes)
-    chunks = []
-    
-    for p in range(num_processes):
-        start_idx = p * chunk_size
-        if p == num_processes - 1:
-            end_idx = n  # Last process gets remaining particles
-        else:
-            end_idx = min((p + 1) * chunk_size, n)
-        
-        if start_idx < end_idx:  # Only add valid chunks
-            chunks.append((start_idx, end_idx, system.x, system.y, system.z, system.m, eps, G))
-    
-    # Use multiprocessing pool to compute accelerations
-    with mp.Pool(processes=len(chunks)) as pool:
-        results = pool.map(compute_accelerations_chunk, chunks)
-    
-    # Combine results back into system arrays
-    system.ax.fill(0.0)
-    system.ay.fill(0.0)
-    system.az.fill(0.0)
-    
-    for i, (ax_chunk, ay_chunk, az_chunk) in enumerate(results):
-        start_idx = i * chunk_size
-        if i == len(results) - 1:
-            end_idx = n
-        else:
-            end_idx = min((i + 1) * chunk_size, n)
-        
-        chunk_len = end_idx - start_idx
-        system.ax[start_idx:end_idx] = ax_chunk[:chunk_len]
-        system.ay[start_idx:end_idx] = ay_chunk[:chunk_len]
-        system.az[start_idx:end_idx] = az_chunk[:chunk_len]
+
+    # Create shared memory buffers for x,y,z,m
+    x_shm = shared_memory.SharedMemory(create=True, size=system.x.nbytes)
+    y_shm = shared_memory.SharedMemory(create=True, size=system.y.nbytes)
+    z_shm = shared_memory.SharedMemory(create=True, size=system.z.nbytes)
+    m_shm = shared_memory.SharedMemory(create=True, size=system.m.nbytes)
+
+    try:
+        # Copy data into shared buffers
+        x_buf = np.ndarray(system.x.shape, dtype=system.x.dtype, buffer=x_shm.buf)
+        y_buf = np.ndarray(system.y.shape, dtype=system.y.dtype, buffer=y_shm.buf)
+        z_buf = np.ndarray(system.z.shape, dtype=system.z.dtype, buffer=z_shm.buf)
+        m_buf = np.ndarray(system.m.shape, dtype=system.m.dtype, buffer=m_shm.buf)
+        np.copyto(x_buf, system.x)
+        np.copyto(y_buf, system.y)
+        np.copyto(z_buf, system.z)
+        np.copyto(m_buf, system.m)
+
+        # Determine chunks
+        chunk_size = max(1, n // num_processes)
+        chunks = []
+        for p in range(num_processes):
+            start_idx = p * chunk_size
+            end_idx = n if p == num_processes - 1 else min((p + 1) * chunk_size, n)
+            if start_idx < end_idx:
+                chunks.append((start_idx, end_idx, eps, G))
+
+        # Launch pool with initializer attaching shared memory
+        init_args = (x_shm.name, y_shm.name, z_shm.name, m_shm.name, n)
+        with mp.Pool(processes=len(chunks), initializer=_worker_init, initargs=init_args) as pool:
+            results = pool.map(compute_accelerations_chunk, chunks)
+
+        # Combine into system arrays
+        system.ax.fill(0.0)
+        system.ay.fill(0.0)
+        system.az.fill(0.0)
+        for i, (ax_chunk, ay_chunk, az_chunk) in enumerate(results):
+            start_idx = i * chunk_size
+            end_idx = n if i == len(results) - 1 else min((i + 1) * chunk_size, n)
+            chunk_len = end_idx - start_idx
+            system.ax[start_idx:end_idx] = ax_chunk[:chunk_len]
+            system.ay[start_idx:end_idx] = ay_chunk[:chunk_len]
+            system.az[start_idx:end_idx] = az_chunk[:chunk_len]
+
+    finally:
+        # Clean up shared memory
+        x_shm.close(); x_shm.unlink()
+        y_shm.close(); y_shm.unlink()
+        z_shm.close(); z_shm.unlink()
+        m_shm.close(); m_shm.unlink()
 
 
 def velocity_verlet_step_parallel(system: NBodySystem, dt: float, num_processes: int, eps: float = 1e-2, G: float = 1.0):
-    """
-    Perform one step of Velocity Verlet integration with parallel force computation
-    """
-    # Step 1: v(t + dt/2) = v(t) + (dt/2) * a(t)
+    """Perform one Velocity-Verlet step with parallel acceleration compute."""
     system.vx += 0.5 * dt * system.ax
     system.vy += 0.5 * dt * system.ay
     system.vz += 0.5 * dt * system.az
-    
-    # Step 2: x(t + dt) = x(t) + dt * v(t + dt/2)
+
     system.x += dt * system.vx
     system.y += dt * system.vy
     system.z += dt * system.vz
-    
-    # Step 3: compute a(t + dt) from new positions (parallel)
+
     compute_accelerations_parallel(system, num_processes, eps, G)
-    
-    # Step 4: v(t + dt) = v(t + dt/2) + (dt/2) * a(t + dt)
+
     system.vx += 0.5 * dt * system.ax
     system.vy += 0.5 * dt * system.ay
     system.vz += 0.5 * dt * system.az
 
 
 def run_parallel_simulation(params: Dict[str, Any]) -> float:
-    """
-    Run parallel N-body simulation using multiprocessing
-    
-    Args:
-        params: Dictionary containing simulation parameters
-        
-    Returns:
-        execution_time: Total execution time in seconds
-    """
-    # Extract parameters
+    """Run parallel N-body simulation using multiprocessing with shared memory."""
     n = params['n']
     steps = params['steps']
     dt = params['dt']
@@ -152,7 +160,7 @@ def run_parallel_simulation(params: Dict[str, Any]) -> float:
     dump_every = params.get('dump_every', 10)
     output_dir = params['output_dir']
     num_processes = params.get('procs', mp.cpu_count())
-    
+
     print(f"Starting parallel simulation:")
     print(f"  N bodies: {n}")
     print(f"  Steps: {steps}")
@@ -160,79 +168,65 @@ def run_parallel_simulation(params: Dict[str, Any]) -> float:
     print(f"  Softening: {eps}")
     print(f"  Processes: {num_processes}")
     print(f"  Output: {output_dir}")
-    
-    # Create output directory
+
     create_output_directory(output_dir)
-    
-    # Initialize system
+
     print("Initializing system...")
     system = NBodySystem(n)
     system.initialize_plummer_sphere(seed)
-    
-    # Save initial conditions
+
     save_initial_conditions(system, output_dir)
-    
-    # Compute initial accelerations
+
     compute_accelerations_parallel(system, num_processes, eps, G)
-    
-    # Save initial state and energy
+
     save_system_state(system, 0, output_dir)
     kinetic = system.compute_kinetic_energy()
     potential = system.compute_potential_energy(eps)
     save_energy_data(0, kinetic, potential, output_dir)
-    
+
     print(f"Initial energy: K={kinetic:.6f}, U={potential:.6f}, Total={kinetic+potential:.6f}")
-    
-    # Start simulation timer
+
     start_time = time.time()
-    
+
     print("Running simulation...")
     for step in range(1, steps + 1):
-        # Perform integration step
         velocity_verlet_step_parallel(system, dt, num_processes, eps, G)
-        
-        # Save state and energy if needed
+
         if step % dump_every == 0:
             save_system_state(system, step, output_dir)
             kinetic = system.compute_kinetic_energy()
             potential = system.compute_potential_energy(eps)
             save_energy_data(step, kinetic, potential, output_dir)
-            
             if step % (dump_every * 10) == 0:
                 total_energy = kinetic + potential
                 print(f"Step {step:6d}: K={kinetic:.6f}, U={potential:.6f}, Total={total_energy:.6f}")
-    
-    # End simulation timer
+
     execution_time = time.time() - start_time
-    
-    # Final energy check
+
     final_kinetic = system.compute_kinetic_energy()
     final_potential = system.compute_potential_energy(eps)
     final_total = final_kinetic + final_potential
-    
+
     print(f"Simulation completed in {execution_time:.2f} seconds")
     print(f"Final energy: K={final_kinetic:.6f}, U={final_potential:.6f}, Total={final_total:.6f}")
-    
-    # Save metadata
+
     params_with_procs = params.copy()
     params_with_procs['processes_used'] = num_processes
     save_metadata(params_with_procs, output_dir, execution_time)
-    
+
     return execution_time
 
 
 if __name__ == "__main__":
-    # Test run
     test_params = {
         'n': 100,
-        'steps': 1000,
+        'steps': 100,
         'dt': 0.001,
         'eps': 0.01,
         'seed': 42,
-        'dump_every': 100,
+        'dump_every': 50,
         'procs': 4,
         'output_dir': '../data/outputs/test_parallel'
     }
-    
     execution_time = run_parallel_simulation(test_params)
     print(f"Test completed in {execution_time:.2f} seconds")
