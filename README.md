@@ -32,6 +32,9 @@ PowerShell examples:
 
 Outputs are written to `output/`.
 
+7) Visualize an existing CSV (generate per-iteration PNG frames + animated GIF):
+`cargo run --release --manifest-path .\rust\Cargo.toml -- --visualize .\output\rs_seq.csv`
+
 ## System Details
 Collected automatically in `output/system_info.json`. Example from this machine:
 - Python: see `python`
