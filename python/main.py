@@ -21,6 +21,8 @@ def main(argv: List[str]) -> int:
     parser.add_argument("--softening", type=float, default=1e-9, help="Softening term to avoid singularities")
     parser.add_argument("--output", type=str, default=os.path.join("output", "nbody_python_seq.csv"), help="Output CSV path")
     parser.add_argument("--workers", type=int, default=0, help="Number of worker processes for mp mode (0 = auto)")
+    parser.add_argument("--write-every", type=int, default=1, help="Write CSV every K steps (0 = disable all writes)")
+    parser.add_argument("--no-output", action="store_true", help="Disable CSV output entirely (same as --write-every 0)")
 
     # Initial conditions: either --bodies JSON or --random N with ranges
     parser.add_argument("--bodies", type=str, default="", help="JSON array of bodies: [{\"m\":..,\"x\":..,\"y\":..,\"z\":..,\"vx\":..,\"vy\":..,\"vz\":..}]")
@@ -58,6 +60,8 @@ def main(argv: List[str]) -> int:
         else:
             mp.freeze_support()  # Windows requirement
 
+    write_every = 0 if args.no_output else max(0, args.write_every)
+
     elapsed = simulate(
         bodies=bodies,
         steps=args.steps,
@@ -67,6 +71,7 @@ def main(argv: List[str]) -> int:
         mode=args.mode,
         out_path=out_path,
         workers=args.workers,
+        write_every=write_every,
     )
 
     print(f"Mode={args.mode} Bodies={len(bodies)} Steps={args.steps} dt={args.dt} ElapsedSeconds={elapsed:.6f}")

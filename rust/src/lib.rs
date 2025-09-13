@@ -74,8 +74,10 @@ pub fn compute_acc(bodies: &[Body], g: f64, softening: f64) -> Vec<(f64, f64, f6
 }
 
 pub fn compute_acc_par(bodies: &[Body], g: f64, softening: f64) -> Vec<(f64, f64, f64)> {
+    use rayon::iter::IndexedParallelIterator;
     let n = bodies.len();
-    (0..n).into_par_iter().map(|i| {
+    // Hint a minimum chunk length to reduce scheduling overhead on small N
+    (0..n).into_par_iter().with_min_len(64).map(|i| {
         let (xi, yi, zi) = (bodies[i].x, bodies[i].y, bodies[i].z);
         let mut aix = 0.0; let mut aiy = 0.0; let mut aiz = 0.0;
         for j in 0..n {
