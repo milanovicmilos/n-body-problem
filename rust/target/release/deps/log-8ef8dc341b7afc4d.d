@@ -1,0 +1,10 @@
+C:\Users\Milos\OneDrive - Univerzitet u Novom Sadu\Desktop\FTN - Miloš Milanović\7. Semestar\NTP\NTP_PROJEKAT\n-body-problem\rust\target\release\deps\liblog-8ef8dc341b7afc4d.rmeta: C:\Users\Milos\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.28\src\lib.rs C:\Users\Milos\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.28\src\macros.rs C:\Users\Milos\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.28\src\serde.rs C:\Users\Milos\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.28\src\__private_api.rs
+
+C:\Users\Milos\OneDrive - Univerzitet u Novom Sadu\Desktop\FTN - Miloš Milanović\7. Semestar\NTP\NTP_PROJEKAT\n-body-problem\rust\target\release\deps\liblog-8ef8dc341b7afc4d.rlib: C:\Users\Milos\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.28\src\lib.rs C:\Users\Milos\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.28\src\macros.rs C:\Users\Milos\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.28\src\serde.rs C:\Users\Milos\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.28\src\__private_api.rs
+
+C:\Users\Milos\OneDrive - Univerzitet u Novom Sadu\Desktop\FTN - Miloš Milanović\7. Semestar\NTP\NTP_PROJEKAT\n-body-problem\rust\target\release\deps\log-8ef8dc341b7afc4d.d: C:\Users\Milos\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.28\src\lib.rs C:\Users\Milos\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.28\src\macros.rs C:\Users\Milos\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.28\src\serde.rs C:\Users\Milos\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.28\src\__private_api.rs
+
+C:\Users\Milos\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.28\src\lib.rs:
+C:\Users\Milos\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.28\src\macros.rs:
+C:\Users\Milos\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.28\src\serde.rs:
+C:\Users\Milos\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.28\src\__private_api.rs:
