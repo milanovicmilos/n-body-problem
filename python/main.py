@@ -27,7 +27,7 @@ def main(argv: List[str]) -> int:
     parser.add_argument("--random", type=int, default=0, help="If >0, generate this many random bodies")
     parser.add_argument("--seed", type=int, default=42, help="Random seed when using --random")
     parser.add_argument("--mass-range", type=float, nargs=2, default=[1.0, 10.0], help="Mass range for random bodies [min max]")
-    parser.add_argument("--pos-range", type=float, nargs=2, default=[-1.0, 1.0], help="Position range for random bodies [min max]")
+    parser.add_argument("--pos-range", type=float, nargs=2, default=[-50.0, 50.0], help="Position range for random bodies [min max]")
     parser.add_argument("--vel-range", type=float, nargs=2, default=[-0.1, 0.1], help="Velocity range for random bodies [min max]")
 
     args = parser.parse_args(argv)

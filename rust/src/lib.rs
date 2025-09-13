@@ -92,14 +92,7 @@ pub fn compute_acc_par(bodies: &[Body], g: f64, softening: f64) -> Vec<(f64, f64
     }).collect()
 }
 
-pub fn step_euler(bodies: &mut [Body], acc: &[(f64, f64, f64)], dt: f64) {
-    for (b, (ax, ay, az)) in bodies.iter_mut().zip(acc.iter()) {
-        b.vx += ax * dt; b.vy += ay * dt; b.vz += az * dt;
-    }
-    for b in bodies.iter_mut() {
-        b.x += b.vx * dt; b.y += b.vy * dt; b.z += b.vz * dt;
-    }
-}
+// Euler step removed in favor of velocity Verlet implemented in main loop
 
 pub fn write_state_csv<P: AsRef<Path>>(path: P, iteration: usize, bodies: &[Body], create_header: bool) -> anyhow::Result<()> {
     if let Some(parent) = path.as_ref().parent() {

@@ -37,16 +37,29 @@ def compute_accelerations(bodies: List[Body], G: float, softening: float) -> Lis
     return list(zip(ax, ay, az))
 
 
-def step_euler(bodies: List[Body], acc: List[Tuple[float, float, float]], dt: float) -> None:
-    for i, (ax, ay, az) in enumerate(acc):
+def _velocity_verlet_step(
+    bodies: List[Body],
+    acc_prev: List[Tuple[float, float, float]],
+    dt: float,
+    acc_fn,
+) -> List[Tuple[float, float, float]]:
+    # 1) update positions using current velocities and previous accelerations
+    dt2 = dt * dt
+    for i, (ax, ay, az) in enumerate(acc_prev):
         b = bodies[i]
-        b.vx += ax * dt
-        b.vy += ay * dt
-        b.vz += az * dt
-    for b in bodies:
-        b.x += b.vx * dt
-        b.y += b.vy * dt
-        b.z += b.vz * dt
+        b.x += b.vx * dt + 0.5 * ax * dt2
+        b.y += b.vy * dt + 0.5 * ay * dt2
+        b.z += b.vz * dt + 0.5 * az * dt2
+    # 2) compute new accelerations from updated positions
+    acc_new = acc_fn()
+    # 3) update velocities using average of old and new accelerations
+    for i, (ax_new, ay_new, az_new) in enumerate(acc_new):
+        ax_prev, ay_prev, az_prev = acc_prev[i]
+        b = bodies[i]
+        b.vx += 0.5 * (ax_prev + ax_new) * dt
+        b.vy += 0.5 * (ay_prev + ay_new) * dt
+        b.vz += 0.5 * (az_prev + az_new) * dt
+    return acc_new
 
 
 def _accel_chunk(args):
@@ -115,9 +128,15 @@ def simulate(
     t0 = time.perf_counter()
     write_state_csv(out_path, 0, bodies, create_header=True)
     if mode == "seq":
+        # initial accelerations
+        acc_prev = compute_accelerations(bodies, G, softening)
         for it in range(1, steps + 1):
-            acc = compute_accelerations(bodies, G, softening)
-            step_euler(bodies, acc, dt)
+            acc_prev = _velocity_verlet_step(
+                bodies,
+                acc_prev,
+                dt,
+                acc_fn=lambda: compute_accelerations(bodies, G, softening),
+            )
             write_state_csv(out_path, it, bodies, create_header=False)
     elif mode == "mp":
         if mp is None:
@@ -125,9 +144,15 @@ def simulate(
         if workers <= 0:
             workers = max(1, mp.cpu_count() - 1)
         with mp.Pool(processes=workers) as pool:
+            # initial accelerations
+            acc_prev = compute_accelerations_mp(bodies, G, softening, workers, pool=pool)
             for it in range(1, steps + 1):
-                acc = compute_accelerations_mp(bodies, G, softening, workers, pool=pool)
-                step_euler(bodies, acc, dt)
+                acc_prev = _velocity_verlet_step(
+                    bodies,
+                    acc_prev,
+                    dt,
+                    acc_fn=lambda: compute_accelerations_mp(bodies, G, softening, workers, pool=pool),
+                )
                 write_state_csv(out_path, it, bodies, create_header=False)
     else:
         raise ValueError(f"Unknown mode: {mode}")
