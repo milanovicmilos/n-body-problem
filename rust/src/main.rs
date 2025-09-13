@@ -185,6 +185,7 @@ fn main() -> anyhow::Result<()> {
     .arg(Arg::new("gif_ms").long("gif-ms").value_parser(clap::value_parser!(u16)).default_value("100").help("GIF frame delay in milliseconds (smaller = faster animation)"))
     .arg(Arg::new("vis_bounds").long("vis-bounds").value_parser(["per-frame","global","initial"]).default_value("per-frame").help("How to choose plot bounds: per-frame (auto), global (all frames), or initial (iteration 0)"))
     .arg(Arg::new("vis_pad").long("vis-pad").value_parser(clap::value_parser!(f64)).default_value("0.05").help("Padding fraction added to bounds on each side (e.g., 0.05 = 5%)"))
+    .arg(Arg::new("write_every").long("write-every").value_parser(clap::value_parser!(usize)).default_value("1").help("Write CSV every K steps (0 = disable all writes)"))
         .get_matches();
 
     // If user asked only for visualization, run that and exit early
@@ -205,6 +206,7 @@ fn main() -> anyhow::Result<()> {
     let softening = *matches.get_one::<f64>("softening").unwrap();
     let mut output = matches.get_one::<String>("output").unwrap().to_owned();
     let quiet = matches.get_flag("quiet");
+    let write_every = *matches.get_one::<usize>("write_every").unwrap();
 
     let bodies: Vec<nbody::Body> = if let Some(bodies_json) = matches.get_one::<String>("bodies") {
         parse_bodies(bodies_json)?
@@ -231,7 +233,7 @@ fn main() -> anyhow::Result<()> {
         "threads" => compute_acc_par(&bodies_mut, g, softening),
         _ => unreachable!(),
     };
-    write_state_csv(&output, 0, &bodies_mut, true)?;
+    if write_every != 0 { write_state_csv(&output, 0, &bodies_mut, true)?; }
     for it in 1..=steps {
         // 2) update positions using x += v*dt + 0.5*a*dt^2
         for (i, b) in bodies_mut.iter_mut().enumerate() {
@@ -255,7 +257,9 @@ fn main() -> anyhow::Result<()> {
             b.vz += 0.5 * (az_prev + az_new) * dt;
         }
         acc_prev = acc_new;
-        write_state_csv(&output, it, &bodies_mut, false)?;
+        if write_every != 0 && (it % write_every == 0 || it == steps) {
+            write_state_csv(&output, it, &bodies_mut, false)?;
+        }
     }
     let elapsed = start.elapsed().as_secs_f64();
     if !quiet {

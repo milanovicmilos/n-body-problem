@@ -10,6 +10,13 @@ except Exception:
 from .model import Body
 from .io import write_state_csv
 
+# Optional: shared memory acceleration for Python multiprocessing to avoid per-iteration pickling
+try:
+    import multiprocessing.shared_memory as shm
+    HAVE_SHM = True
+except Exception:
+    HAVE_SHM = False
+
 
 def compute_accelerations(bodies: List[Body], G: float, softening: float) -> List[Tuple[float, float, float]]:
     n = len(bodies)
@@ -124,9 +131,11 @@ def simulate(
     mode: str,
     out_path: str,
     workers: int,
+    write_every: int = 1,
 ) -> float:
     t0 = time.perf_counter()
-    write_state_csv(out_path, 0, bodies, create_header=True)
+    if write_every != 0:
+        write_state_csv(out_path, 0, bodies, create_header=True)
     if mode == "seq":
         # initial accelerations
         acc_prev = compute_accelerations(bodies, G, softening)
@@ -137,7 +146,8 @@ def simulate(
                 dt,
                 acc_fn=lambda: compute_accelerations(bodies, G, softening),
             )
-            write_state_csv(out_path, it, bodies, create_header=False)
+            if write_every != 0 and (it % write_every == 0 or it == steps):
+                write_state_csv(out_path, it, bodies, create_header=False)
     elif mode == "mp":
         if mp is None:
             raise RuntimeError("multiprocessing is not available on this platform")
@@ -153,7 +163,8 @@ def simulate(
                     dt,
                     acc_fn=lambda: compute_accelerations_mp(bodies, G, softening, workers, pool=pool),
                 )
-                write_state_csv(out_path, it, bodies, create_header=False)
+                if write_every != 0 and (it % write_every == 0 or it == steps):
+                    write_state_csv(out_path, it, bodies, create_header=False)
     else:
         raise ValueError(f"Unknown mode: {mode}")
     t1 = time.perf_counter()

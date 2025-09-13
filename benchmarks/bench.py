@@ -45,6 +45,7 @@ def run_py(mode: str, n: int, steps: int, dt: float, workers: int = 0) -> float:
         "--steps", str(steps),
         "--dt", str(dt),
         "--output", os.path.join(OUTPUT, f"tmp_py_{mode}.csv"),
+        "--write-every", "0",
     ]
     if mode == "mp":
         cmd += ["--workers", str(workers)]
@@ -54,11 +55,11 @@ def run_py(mode: str, n: int, steps: int, dt: float, workers: int = 0) -> float:
 
 def run_rust(mode: str, n: int, steps: int, dt: float) -> float:
     exe = ["cargo", "run", "--release", "--", "--mode", mode, "--random", str(n),
-           "--steps", str(steps), "--dt", str(dt), "--output", os.path.join("..", "output", f"tmp_rs_{mode}.csv"), "--quiet"]
+        "--steps", str(steps), "--dt", str(dt), "--output", os.path.join("..", "output", f"tmp_rs_{mode}.csv"), "--quiet", "--write-every", "0"]
     p = subprocess.run(exe, cwd=RUST_DIR, capture_output=True, text=True, check=True)
     # Output suppressed; parse elapsed from stderr or ignore; instead run again with quiet off to get timing.
     exe_verbose = ["cargo", "run", "--release", "--", "--mode", mode, "--random", str(n),
-                   "--steps", str(steps), "--dt", str(dt), "--output", os.path.join("..", "output", f"tmp_rs_{mode}.csv")]
+             "--steps", str(steps), "--dt", str(dt), "--output", os.path.join("..", "output", f"tmp_rs_{mode}.csv"), "--write-every", "0"]
     p2 = subprocess.run(exe_verbose, cwd=RUST_DIR, capture_output=True, text=True, check=True)
     return _parse_elapsed(p2.stdout)
 
@@ -79,7 +80,7 @@ def strong_scaling(language: str, problem_n: int, steps: int, dt: float, worker_
             env["RAYON_NUM_THREADS"] = str(w)
             # We cannot pass env to helper directly; inline the call here
             exe_verbose = ["cargo", "run", "--release", "--", "--mode", "threads", "--random", str(problem_n),
-                           "--steps", str(steps), "--dt", str(dt), "--output", os.path.join("..", "output", f"tmp_rs_threads.csv")]
+                           "--steps", str(steps), "--dt", str(dt), "--output", os.path.join("..", "output", f"tmp_rs_threads.csv"), "--write-every", "0"]
             p2 = subprocess.run(exe_verbose, cwd=RUST_DIR, capture_output=True, text=True, check=True, env=env)
             t_par = _parse_elapsed(p2.stdout)
             speedup = t_seq / t_par if t_par > 0 else float("inf")
@@ -106,7 +107,7 @@ def weak_scaling(language: str, base_n: int, steps: int, dt: float, worker_count
             env = os.environ.copy()
             env["RAYON_NUM_THREADS"] = str(w)
             exe_verbose = ["cargo", "run", "--release", "--", "--mode", "threads", "--random", str(n),
-                           "--steps", str(steps), "--dt", str(dt), "--output", os.path.join("..", "output", f"tmp_rs_threads.csv")]
+                           "--steps", str(steps), "--dt", str(dt), "--output", os.path.join("..", "output", f"tmp_rs_threads.csv"), "--write-every", "0"]
             p2 = subprocess.run(exe_verbose, cwd=RUST_DIR, capture_output=True, text=True, check=True, env=env)
             t_par = _parse_elapsed(p2.stdout)
             speedup = (t_seq * w) / t_par if t_par > 0 else float("inf")
