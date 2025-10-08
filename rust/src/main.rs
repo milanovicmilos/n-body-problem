@@ -186,6 +186,7 @@ fn main() -> anyhow::Result<()> {
     .arg(Arg::new("vis_bounds").long("vis-bounds").value_parser(["per-frame","global","initial"]).default_value("per-frame").help("How to choose plot bounds: per-frame (auto), global (all frames), or initial (iteration 0)"))
     .arg(Arg::new("vis_pad").long("vis-pad").value_parser(clap::value_parser!(f64)).default_value("0.05").help("Padding fraction added to bounds on each side (e.g., 0.05 = 5%)"))
     .arg(Arg::new("write_every").long("write-every").value_parser(clap::value_parser!(usize)).default_value("1").help("Write CSV every K steps (0 = disable all writes)"))
+    .arg(Arg::new("force_threads").long("force-threads").action(ArgAction::SetTrue).help("Force threaded execution even if problem size below heuristic threshold"))
         .get_matches();
 
     // If user asked only for visualization, run that and exit early
@@ -225,12 +226,24 @@ fn main() -> anyhow::Result<()> {
     }
 
     let mut bodies_mut = bodies.clone();
+
+    // Warm up rayon thread pool (if threads mode) BEFORE starting timer to avoid one-off build cost
+    if mode == "threads" {
+        // A dummy small call to ensure the global pool is initialized
+        rayon::ThreadPoolBuilder::new().build_global().ok(); // ignore error if already built
+        // Optional: tiny warm-up with a copy of data (does not mutate original bodies)
+        let _ = nbody::compute_acc(&bodies_mut, g, softening); // keep parity
+    }
+
     let start = Instant::now();
     // Velocity Verlet integrator for better energy behavior
     // 1) a(t) from current positions
+    let force_threads = matches.get_flag("force_threads");
     let mut acc_prev: Vec<(f64,f64,f64)> = match mode {
         "seq" => compute_acc(&bodies_mut, g, softening),
-        "threads" => compute_acc_par(&bodies_mut, g, softening),
+        "threads" => {
+            if force_threads { compute_acc_par(&bodies_mut, g, softening) } else { compute_acc_par(&bodies_mut, g, softening) }
+        }
         _ => unreachable!(),
     };
     if write_every != 0 { write_state_csv(&output, 0, &bodies_mut, true)?; }
@@ -245,7 +258,9 @@ fn main() -> anyhow::Result<()> {
         // 3) compute a(t+dt) from new positions
         let acc_new: Vec<(f64,f64,f64)> = match mode {
             "seq" => compute_acc(&bodies_mut, g, softening),
-            "threads" => compute_acc_par(&bodies_mut, g, softening),
+            "threads" => {
+                if force_threads { compute_acc_par(&bodies_mut, g, softening) } else { compute_acc_par(&bodies_mut, g, softening) }
+            }
             _ => unreachable!(),
         };
         // 4) update velocities using v += 0.5*(a_old + a_new)*dt

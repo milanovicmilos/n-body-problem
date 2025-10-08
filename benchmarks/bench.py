@@ -345,6 +345,8 @@ def main():
     parser.add_argument("--repeats", type=int, default=5, help="Repeat each configuration this many times (default: 5; set 30 for full report)")
     parser.add_argument("--no-python", action="store_true", help="Skip Python benchmarks")
     parser.add_argument("--no-rust", action="store_true", help="Skip Rust benchmarks")
+    parser.add_argument("--only-strong", action="store_true", help="Run only strong scaling benchmarks")
+    parser.add_argument("--only-weak", action="store_true", help="Run only weak scaling benchmarks")
 
     args = parser.parse_args()
 
@@ -363,13 +365,21 @@ def main():
         json.dump(sysinfo, f, ensure_ascii=False, indent=2)
 
     fit_params: Dict[str, Dict[str, str]] = {}
+    if args.only_strong and args.only_weak:
+        print("Both --only-strong and --only-weak specified; nothing to do.")
+        return
+
     if not args.no_python:
-        fit_params["python_strong"] = summarize_strong("python", problem_n, steps, dt, worker_counts, repeats)
-        fit_params["python_weak"] = summarize_weak("python", base_n, steps, dt, worker_counts, repeats)
+        if not args.only_weak:
+            fit_params["python_strong"] = summarize_strong("python", problem_n, steps, dt, worker_counts, repeats)
+        if not args.only_strong:
+            fit_params["python_weak"] = summarize_weak("python", base_n, steps, dt, worker_counts, repeats)
 
     if not args.no_rust:
-        fit_params["rust_strong"] = summarize_strong("rust", problem_n, steps, dt, worker_counts, repeats)
-        fit_params["rust_weak"] = summarize_weak("rust", base_n, steps, dt, worker_counts, repeats)
+        if not args.only_weak:
+            fit_params["rust_strong"] = summarize_strong("rust", problem_n, steps, dt, worker_counts, repeats)
+        if not args.only_strong:
+            fit_params["rust_weak"] = summarize_weak("rust", base_n, steps, dt, worker_counts, repeats)
 
     # Persist fit parameters
     with open(os.path.join(OUTPUT, "fit_params.json"), "w", encoding="utf-8") as f:

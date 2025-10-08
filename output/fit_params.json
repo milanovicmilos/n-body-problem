@@ -1,26 +1,14 @@
 {
   "python_strong": {
-    "t_seq_mean": "3.121112",
-    "t_seq_std": "3.035200",
-    "p_amdahl": "0.7700",
+    "t_seq_mean": "30.272738",
+    "t_seq_std": "0.202062",
+    "p_amdahl": "0.4730",
     "plot": "C:\\Users\\Milos\\OneDrive - Univerzitet u Novom Sadu\\Desktop\\FTN - Miloš Milanović\\7. Semestar\\NTP\\NTP_PROJEKAT\\n-body-problem\\output\\python_strong.png"
   },
-  "python_weak": {
-    "t_seq_mean": "0.110393",
-    "t_seq_std": "0.003808",
-    "p_gust": "0.0006",
-    "plot": "C:\\Users\\Milos\\OneDrive - Univerzitet u Novom Sadu\\Desktop\\FTN - Miloš Milanović\\7. Semestar\\NTP\\NTP_PROJEKAT\\n-body-problem\\output\\python_weak.png"
-  },
   "rust_strong": {
-    "t_seq_mean": "0.021321",
-    "t_seq_std": "0.000606",
+    "t_seq_mean": "0.365340",
+    "t_seq_std": "0.005810",
     "p_amdahl": "0.0000",
     "plot": "C:\\Users\\Milos\\OneDrive - Univerzitet u Novom Sadu\\Desktop\\FTN - Miloš Milanović\\7. Semestar\\NTP\\NTP_PROJEKAT\\n-body-problem\\output\\rust_strong.png"
-  },
-  "rust_weak": {
-    "t_seq_mean": "0.001315",
-    "t_seq_std": "0.000037",
-    "p_gust": "0.0000",
-    "plot": "C:\\Users\\Milos\\OneDrive - Univerzitet u Novom Sadu\\Desktop\\FTN - Miloš Milanović\\7. Semestar\\NTP\\NTP_PROJEKAT\\n-body-problem\\output\\rust_weak.png"
   }
 }

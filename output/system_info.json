@@ -1,11 +1,11 @@
 {
   "python": "3.13.1",
-  "platform": "Windows-11-10.0.26100-SP0",
+  "platform": "Windows-11-10.0.26200-SP0",
   "machine": "AMD64",
   "processor": "AMD64 Family 23 Model 104 Stepping 1, AuthenticAMD",
   "cargo_version": "cargo 1.87.0 (99624be96 2025-05-06)",
   "rustc_version": "rustc 1.87.0 (17067e9ac 2025-05-09)",
   "cpu": "{\"Name\":\"AMD Ryzen 5 5500U with Radeon Graphics         \",\"NumberOfCores\":6,\"NumberOfLogicalProcessors\":12,\"MaxClockSpeed\":2100,\"L2CacheSize\":3072,\"L3CacheSize\":8192}",
-  "os": "{\"Caption\":\"Microsoft Windows 11 Pro\",\"Version\":\"10.0.26100\",\"BuildNumber\":\"26100\"}",
+  "os": "{\"Caption\":\"Microsoft Windows 11 Pro\",\"Version\":\"10.0.26200\",\"BuildNumber\":\"26200\"}",
   "ram": "15.33 GB"
 }
