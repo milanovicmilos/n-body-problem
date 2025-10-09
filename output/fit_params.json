@@ -1,0 +1,26 @@
+{
+  "python_strong": {
+    "t_seq_mean": "60.635632",
+    "t_seq_std": "0.655391",
+    "p_amdahl": "0.4250",
+    "plot": "C:\\Users\\Milos\\PythonProjects\\NTP\\n-body-problem\\output\\python_strong.png"
+  },
+  "python_weak": {
+    "t_seq_mean": "3.898937",
+    "t_seq_std": "0.058008",
+    "p_gust": "0.0000",
+    "plot": "C:\\Users\\Milos\\PythonProjects\\NTP\\n-body-problem\\output\\python_weak.png"
+  },
+  "rust_strong": {
+    "t_seq_mean": "0.750549",
+    "t_seq_std": "0.007970",
+    "p_amdahl": "0.8170",
+    "plot": "C:\\Users\\Milos\\PythonProjects\\NTP\\n-body-problem\\output\\rust_strong.png"
+  },
+  "rust_weak": {
+    "t_seq_mean": "0.045249",
+    "t_seq_std": "0.000943",
+    "p_gust": "0.0000",
+    "plot": "C:\\Users\\Milos\\PythonProjects\\NTP\\n-body-problem\\output\\rust_weak.png"
+  }
+}

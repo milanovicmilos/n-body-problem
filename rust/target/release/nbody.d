@@ -1,0 +1,1 @@
+C:\Users\Milos\PythonProjects\NTP\n-body-problem\rust\target\release\nbody.exe: C:\Users\Milos\PythonProjects\NTP\n-body-problem\rust\src\lib.rs C:\Users\Milos\PythonProjects\NTP\n-body-problem\rust\src\main.rs
