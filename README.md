@@ -97,9 +97,13 @@ This project exposes three entry points with command-line options: the Python si
 		- `--no-rust` — skip Rust benchmarks.
 
 	- Notes: the harness uses `RAYON_NUM_THREADS` to control Rust's Rayon thread pool when testing threaded runs. The script assumes `cargo` on PATH and will write CSV/plots under `output/`.
+		- Notes:
+			- The harness measures a sequential baseline (w=1) and then parallel runs for workers ≥ 2; speedups are normalized so S(1)=1.
+			- For Rust, the harness builds once (`cargo build --release`) and then runs the compiled binary to avoid repeated `cargo run` overhead.
+			- For small N, multiprocessing/threading overhead on Windows can dominate; prefer larger N/steps for meaningful scaling (e.g., `--problem-n 1200 --base-n 300 --steps 120`).
 
 	- Example (run full report with 30 repeats):
-		`python .\benchmarks\bench.py --repeats 30 --workers 1 2 4 8 --problem-n 800 --base-n 200 --steps 200 --dt 0.002`
+			`python .\benchmarks\bench.py --repeats 30 --workers 2 4 8 --problem-n 1200 --base-n 300 --steps 120 --dt 0.002`
 
 - Rust binary (`cargo run` / `rust` crate)
 

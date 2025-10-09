@@ -73,25 +73,41 @@ pub fn compute_acc(bodies: &[Body], g: f64, softening: f64) -> Vec<(f64, f64, f6
     acc
 }
 
+/// Heuristic minimum N for which parallel version tends to outperform sequential.
+/// Below this threshold we fallback to sequential to avoid negative speedup.
+const PAR_THRESHOLD: usize = 600;
+
+/// Compute accelerations in parallel; falls back to sequential for small N unless forced.
 pub fn compute_acc_par(bodies: &[Body], g: f64, softening: f64) -> Vec<(f64, f64, f64)> {
     use rayon::iter::IndexedParallelIterator;
     let n = bodies.len();
-    // Hint a minimum chunk length to reduce scheduling overhead on small N
-    (0..n).into_par_iter().with_min_len(64).map(|i| {
-        let (xi, yi, zi) = (bodies[i].x, bodies[i].y, bodies[i].z);
-        let mut aix = 0.0; let mut aiy = 0.0; let mut aiz = 0.0;
-        for j in 0..n {
-            if i == j { continue; }
-            let dx = bodies[j].x - xi;
-            let dy = bodies[j].y - yi;
-            let dz = bodies[j].z - zi;
-            let dist_sqr = dx * dx + dy * dy + dz * dz + softening;
-            let inv_r3 = 1.0 / (dist_sqr * dist_sqr.sqrt());
-            let f = g * bodies[j].m * inv_r3;
-            aix += dx * f; aiy += dy * f; aiz += dz * f;
-        }
-        (aix, aiy, aiz)
-    }).collect()
+    if n < PAR_THRESHOLD {
+        return compute_acc(bodies, g, softening);
+    }
+    // Larger problems: distribute outer loop. with_min_len tuned to moderate chunk size.
+    (0..n)
+        .into_par_iter()
+        .with_min_len(128)
+        .map(|i| {
+            let (xi, yi, zi) = (bodies[i].x, bodies[i].y, bodies[i].z);
+            let mut aix = 0.0;
+            let mut aiy = 0.0;
+            let mut aiz = 0.0;
+            for j in 0..n {
+                if i == j { continue; }
+                let dx = bodies[j].x - xi;
+                let dy = bodies[j].y - yi;
+                let dz = bodies[j].z - zi;
+                let dist_sqr = dx * dx + dy * dy + dz * dz + softening;
+                let inv_r3 = 1.0 / (dist_sqr * dist_sqr.sqrt());
+                let f = g * bodies[j].m * inv_r3;
+                aix += dx * f;
+                aiy += dy * f;
+                aiz += dz * f;
+            }
+            (aix, aiy, aiz)
+        })
+        .collect()
 }
 
 // Euler step removed in favor of velocity Verlet implemented in main loop
