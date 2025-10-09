@@ -20,6 +20,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PY = sys.executable or "python"
 PY_MAIN = os.path.join(ROOT, "python", "main.py")
 RUST_DIR = os.path.join(ROOT, "rust")
+RUST_TARGET_EXE = os.path.join(RUST_DIR, "target", "release", "nbody.exe" if os.name == "nt" else "nbody")
 OUTPUT = os.path.join(ROOT, "output")
 PLOTS = {
     "python_strong": os.path.join(OUTPUT, "python_strong.png"),
@@ -37,7 +38,11 @@ def _parse_elapsed(stdout: str) -> float:
     return float(matches[-1])
 
 
-def run_py(mode: str, n: int, steps: int, dt: float, workers: int = 0) -> float:
+def run_py(mode: str, n: int, steps: int, dt: float, workers: int = 0, warmup: bool = False) -> float:
+    """Run python simulation returning elapsed seconds.
+
+    If warmup=True the result is discarded (still returns parsed time for logging but caller can ignore).
+    """
     cmd = [
         PY, PY_MAIN,
         "--mode", mode,
@@ -52,66 +57,56 @@ def run_py(mode: str, n: int, steps: int, dt: float, workers: int = 0) -> float:
     p = subprocess.run(cmd, capture_output=True, text=True, check=True)
     return _parse_elapsed(p.stdout)
 
+def _ensure_rust_built():
+    if not os.path.isfile(RUST_TARGET_EXE):
+        subprocess.run(["cargo", "build", "--release"], cwd=RUST_DIR, check=True)
 
-def run_rust(mode: str, n: int, steps: int, dt: float) -> float:
-    exe = ["cargo", "run", "--release", "--", "--mode", mode, "--random", str(n),
-        "--steps", str(steps), "--dt", str(dt), "--output", os.path.join("..", "output", f"tmp_rs_{mode}.csv"), "--quiet", "--write-every", "0"]
-    p = subprocess.run(exe, cwd=RUST_DIR, capture_output=True, text=True, check=True)
-    # Output suppressed; parse elapsed from stderr or ignore; instead run again with quiet off to get timing.
-    exe_verbose = ["cargo", "run", "--release", "--", "--mode", mode, "--random", str(n),
-             "--steps", str(steps), "--dt", str(dt), "--output", os.path.join("..", "output", f"tmp_rs_{mode}.csv"), "--write-every", "0"]
-    p2 = subprocess.run(exe_verbose, cwd=RUST_DIR, capture_output=True, text=True, check=True)
-    return _parse_elapsed(p2.stdout)
+
+def run_rust(mode: str, n: int, steps: int, dt: float, workers: int = 0) -> float:
+    """Run rust simulation. For threaded mode set RAYON_NUM_THREADS via env if workers>0.
+
+    Returns elapsed seconds parsed from stdout.
+    """
+    _ensure_rust_built()
+    exe = RUST_TARGET_EXE
+    cmd = [exe, "--mode", mode, "--random", str(n), "--steps", str(steps), "--dt", str(dt),
+           "--output", os.path.join("output", f"tmp_rs_{mode}.csv"), "--write-every", "0"]
+    env = os.environ.copy()
+    if mode == "threads" and workers > 0:
+        env["RAYON_NUM_THREADS"] = str(workers)
+    p = subprocess.run(cmd, cwd=RUST_DIR, capture_output=True, text=True, check=True, env=env)
+    return _parse_elapsed(p.stdout)
 
 
 def strong_scaling(language: str, problem_n: int, steps: int, dt: float, worker_counts: List[int]) -> List[Tuple[int, float, float]]:
+    """Return list of (workers, t_mean, speedup) WITHOUT baseline; baseline handled elsewhere."""
     results = []
     if language == "python":
-        t_seq = run_py("seq", problem_n, steps, dt)
         for w in worker_counts:
             t_par = run_py("mp", problem_n, steps, dt, workers=w)
-            speedup = t_seq / t_par if t_par > 0 else float("inf")
-            results.append((w, t_par, speedup))
+            results.append((w, t_par, 0.0))  # speedup filled later once baseline known
     elif language == "rust":
-        t_seq = run_rust("seq", problem_n, steps, dt)
         for w in worker_counts:
-            # Control rayon via env var; for simplicity, call with env override
-            env = os.environ.copy()
-            env["RAYON_NUM_THREADS"] = str(w)
-            # We cannot pass env to helper directly; inline the call here
-            exe_verbose = ["cargo", "run", "--release", "--", "--mode", "threads", "--random", str(problem_n),
-                           "--steps", str(steps), "--dt", str(dt), "--output", os.path.join("..", "output", f"tmp_rs_threads.csv"), "--write-every", "0"]
-            p2 = subprocess.run(exe_verbose, cwd=RUST_DIR, capture_output=True, text=True, check=True, env=env)
-            t_par = _parse_elapsed(p2.stdout)
-            speedup = t_seq / t_par if t_par > 0 else float("inf")
-            results.append((w, t_par, speedup))
+            t_par = run_rust("threads", problem_n, steps, dt, workers=w)
+            results.append((w, t_par, 0.0))
     else:
         raise ValueError("language must be 'python' or 'rust'")
     return results
 
 
-def weak_scaling(language: str, base_n: int, steps: int, dt: float, worker_counts: List[int]) -> List[Tuple[int, int, float, float]]:
-    # Keep work per worker roughly constant: N ~ base_n * workers
+def weak_scaling(language: str, base_n: int, steps: int, dt: float, worker_counts: List[int]) -> List[Tuple[int, int, float]]:
+    """Return list of (workers, n, t_mean) for parallel runs (workers>=2)."""
     results = []
     if language == "python":
-        t_seq = run_py("seq", base_n, steps, dt)
         for w in worker_counts:
             n = max(1, base_n * w)
             t_par = run_py("mp", n, steps, dt, workers=w)
-            speedup = (t_seq * w) / t_par if t_par > 0 else float("inf")
-            results.append((w, n, t_par, speedup))
+            results.append((w, n, t_par))
     elif language == "rust":
-        t_seq = run_rust("seq", base_n, steps, dt)
         for w in worker_counts:
             n = max(1, base_n * w)
-            env = os.environ.copy()
-            env["RAYON_NUM_THREADS"] = str(w)
-            exe_verbose = ["cargo", "run", "--release", "--", "--mode", "threads", "--random", str(n),
-                           "--steps", str(steps), "--dt", str(dt), "--output", os.path.join("..", "output", f"tmp_rs_threads.csv"), "--write-every", "0"]
-            p2 = subprocess.run(exe_verbose, cwd=RUST_DIR, capture_output=True, text=True, check=True, env=env)
-            t_par = _parse_elapsed(p2.stdout)
-            speedup = (t_seq * w) / t_par if t_par > 0 else float("inf")
-            results.append((w, n, t_par, speedup))
+            t_par = run_rust("threads", n, steps, dt, workers=w)
+            results.append((w, n, t_par))
     else:
         raise ValueError("language must be 'python' or 'rust'")
     return results
@@ -161,34 +156,54 @@ def fit_gustafson(workers: List[int], speedups: List[float]) -> float:
     return p
 
 
-def summarize_strong(language: str, problem_n: int, steps: int, dt: float, workers: List[int], repeats: int) -> Dict[str, str]:
-    # Run sequential baseline repeats
-    t_seq_runs = [run_py("seq", problem_n, steps, dt) if language == "python" else run_rust("seq", problem_n, steps, dt) for _ in range(repeats)]
-    t_seq_mean = statistics.mean(t_seq_runs)
-    t_seq_std = statistics.pstdev(t_seq_runs) if repeats > 1 else 0.0
+def summarize_strong(language: str, problem_n: int, steps: int, dt: float, workers: List[int], repeats: int, include_w1: bool = True) -> Dict[str, str]:
+    """Summarize strong scaling.
+
+    Baseline: sequential (speedup=1). Parallel runs for workers list (expected >=2).
+    """
+    # Baseline sequential
+    seq_runs = [run_py("seq", problem_n, steps, dt) if language == "python" else run_rust("seq", problem_n, steps, dt) for _ in range(repeats)]
+    seq_mean = statistics.mean(seq_runs)
+    seq_std = statistics.pstdev(seq_runs) if repeats > 1 else 0.0
+    # Outliers baseline
+    if repeats >= 4:
+        q1b, q3b = statistics.quantiles(seq_runs, n=4)[0], statistics.quantiles(seq_runs, n=4)[2]
+        iqrb = q3b - q1b
+        lob, hib = q1b - 1.5 * iqrb, q3b + 1.5 * iqrb
+        outliers_b = sum(1 for r in seq_runs if r < lob or r > hib)
+    else:
+        outliers_b = 0
 
     rows = []
+    if include_w1:
+        rows.append((language, "strong", 1, problem_n, repeats, seq_mean, seq_std, min(seq_runs), max(seq_runs), outliers_b, 1.0))
+
+    speedup_workers = []
     speedups = []
     for w in workers:
-        runs = [
-            (run_py("mp", problem_n, steps, dt, workers=w) if language == "python"
-             else (lambda: (os.environ.setdefault("RAYON_NUM_THREADS", str(w)), run_rust("threads", problem_n, steps, dt))[1])())
+        run_times = [
+            (run_py("mp", problem_n, steps, dt, workers=w) if language == "python" else run_rust("threads", problem_n, steps, dt, workers=w))
             for _ in range(repeats)
         ]
-        mean = statistics.mean(runs)
-        std = statistics.pstdev(runs) if repeats > 1 else 0.0
-        sp = t_seq_mean / mean if mean > 0 else float("inf")
+        mean = statistics.mean(run_times)
+        std = statistics.pstdev(run_times) if repeats > 1 else 0.0
+        if repeats >= 4:
+            q1 = statistics.quantiles(run_times, n=4)[0]
+            q3 = statistics.quantiles(run_times, n=4)[2]
+            iqr = q3 - q1
+            lo, hi = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+            outliers = sum(1 for r in run_times if r < lo or r > hi)
+        else:
+            outliers = 0
+        sp = seq_mean / mean if mean > 0 else float("inf")
+        rows.append((language, "strong", w, problem_n, repeats, mean, std, min(run_times), max(run_times), outliers, sp))
+        speedup_workers.append(w)
         speedups.append(sp)
-        # outliers via IQR
-        q1 = statistics.quantiles(runs, n=4)[0] if repeats >= 4 else min(runs)
-        q3 = statistics.quantiles(runs, n=4)[2] if repeats >= 4 else max(runs)
-        iqr = q3 - q1
-        lo, hi = q1 - 1.5 * iqr, q3 + 1.5 * iqr
-        outliers = sum(1 for r in runs if r < lo or r > hi)
-        rows.append((language, "strong", w, problem_n, repeats, mean, std, min(runs), max(runs), outliers, sp))
 
-    # Fit Amdahl p
-    p = fit_amdahl(workers, speedups)
+    # Fit Amdahl p using workers list (consider only parallel worker counts >=2) with synthetic w=1 speedup=1
+    fit_workers = [1] + speedup_workers
+    fit_speedups = [1.0] + speedups
+    p = fit_amdahl(fit_workers, fit_speedups)
 
     # Write summary CSV
     out_csv = os.path.join(OUTPUT, f"summary_{language}_strong.csv")
@@ -216,41 +231,57 @@ def summarize_strong(language: str, problem_n: int, steps: int, dt: float, worke
         plt.close()
 
     return {
-        "t_seq_mean": f"{t_seq_mean:.6f}",
-        "t_seq_std": f"{t_seq_std:.6f}",
+        "t_seq_mean": f"{seq_mean:.6f}",
+        "t_seq_std": f"{seq_std:.6f}",
         "p_amdahl": f"{p:.4f}",
         "plot": plot_path,
     }
 
 
-def summarize_weak(language: str, base_n: int, steps: int, dt: float, workers: List[int], repeats: int) -> Dict[str, str]:
-    # Baseline sequential time at base_n
-    t_seq_runs = [run_py("seq", base_n, steps, dt) if language == "python" else run_rust("seq", base_n, steps, dt) for _ in range(repeats)]
-    t_seq_mean = statistics.mean(t_seq_runs)
-    t_seq_std = statistics.pstdev(t_seq_runs) if repeats > 1 else 0.0
+def summarize_weak(language: str, base_n: int, steps: int, dt: float, workers: List[int], repeats: int, include_w1: bool = True) -> Dict[str, str]:
+    # Baseline sequential (N = base_n)
+    seq_runs = [run_py("seq", base_n, steps, dt) if language == "python" else run_rust("seq", base_n, steps, dt) for _ in range(repeats)]
+    seq_mean = statistics.mean(seq_runs)
+    seq_std = statistics.pstdev(seq_runs) if repeats > 1 else 0.0
+    if repeats >= 4:
+        q1b, q3b = statistics.quantiles(seq_runs, n=4)[0], statistics.quantiles(seq_runs, n=4)[2]
+        iqrb = q3b - q1b
+        lob, hib = q1b - 1.5 * iqrb, q3b + 1.5 * iqrb
+        outliers_b = sum(1 for r in seq_runs if r < lob or r > hib)
+    else:
+        outliers_b = 0
 
     rows = []
+    speedup_workers = []
     speedups = []
+    if include_w1:
+        rows.append((language, "weak", 1, base_n, repeats, seq_mean, seq_std, min(seq_runs), max(seq_runs), outliers_b, 1.0))
+
     for w in workers:
         n = max(1, base_n * w)
-        runs = [
-            (run_py("mp", n, steps, dt, workers=w) if language == "python"
-             else (lambda: (os.environ.setdefault("RAYON_NUM_THREADS", str(w)), run_rust("threads", n, steps, dt))[1])())
+        run_times = [
+            (run_py("mp", n, steps, dt, workers=w) if language == "python" else run_rust("threads", n, steps, dt, workers=w))
             for _ in range(repeats)
         ]
-        mean = statistics.mean(runs)
-        std = statistics.pstdev(runs) if repeats > 1 else 0.0
-        sp = (t_seq_mean * w) / mean if mean > 0 else float("inf")
+        mean = statistics.mean(run_times)
+        std = statistics.pstdev(run_times) if repeats > 1 else 0.0
+        if repeats >= 4:
+            q1 = statistics.quantiles(run_times, n=4)[0]
+            q3 = statistics.quantiles(run_times, n=4)[2]
+            iqr = q3 - q1
+            lo, hi = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+            outliers = sum(1 for r in run_times if r < lo or r > hi)
+        else:
+            outliers = 0
+        # Gustafson style: ideal linear growth of speedup -> (seq_mean * w)/mean but baseline row fixed at 1
+        sp = (seq_mean * w) / mean if mean > 0 else float("inf")
+        rows.append((language, "weak", w, n, repeats, mean, std, min(run_times), max(run_times), outliers, sp))
+        speedup_workers.append(w)
         speedups.append(sp)
-        q1 = statistics.quantiles(runs, n=4)[0] if repeats >= 4 else min(runs)
-        q3 = statistics.quantiles(runs, n=4)[2] if repeats >= 4 else max(runs)
-        iqr = q3 - q1
-        lo, hi = q1 - 1.5 * iqr, q3 + 1.5 * iqr
-        outliers = sum(1 for r in runs if r < lo or r > hi)
-        rows.append((language, "weak", w, n, repeats, mean, std, min(runs), max(runs), outliers, sp))
 
-    # Fit Gustafson p
-    p = fit_gustafson(workers, speedups)
+    fit_workers = [1] + speedup_workers
+    fit_speedups = [1.0] + speedups
+    p = fit_gustafson(fit_workers, fit_speedups)
 
     out_csv = os.path.join(OUTPUT, f"summary_{language}_weak.csv")
     write_csv(out_csv, [
@@ -276,8 +307,8 @@ def summarize_weak(language: str, base_n: int, steps: int, dt: float, workers: L
         plt.close()
 
     return {
-        "t_seq_mean": f"{t_seq_mean:.6f}",
-        "t_seq_std": f"{t_seq_std:.6f}",
+        "t_seq_mean": f"{seq_mean:.6f}",
+        "t_seq_std": f"{seq_std:.6f}",
         "p_gust": f"{p:.4f}",
         "plot": plot_path,
     }
@@ -339,7 +370,7 @@ def main():
     parser = argparse.ArgumentParser(description="N-body strong/weak scaling benchmarks for Python and Rust")
     parser.add_argument("--steps", type=int, default=120, help="Number of steps for all runs (default: 120)")
     parser.add_argument("--dt", type=float, default=0.002, help="Timestep size (default: 0.002)")
-    parser.add_argument("--workers", type=int, nargs="+", default=[1, 2, 4, 8], help="Worker counts to test (default: 1 2 4 8)")
+    parser.add_argument("--workers", type=int, nargs="+", default=[2, 4, 8], help="Parallel worker counts (>=2) to test (default: 2 4 8)")
     parser.add_argument("--problem-n", type=int, default=200, help="N for strong scaling (default: 200)")
     parser.add_argument("--base-n", type=int, default=50, help="Base N for weak scaling (N = base_n * workers; default: 50)")
     parser.add_argument("--repeats", type=int, default=5, help="Repeat each configuration this many times (default: 5; set 30 for full report)")
@@ -347,13 +378,14 @@ def main():
     parser.add_argument("--no-rust", action="store_true", help="Skip Rust benchmarks")
     parser.add_argument("--only-strong", action="store_true", help="Run only strong scaling benchmarks")
     parser.add_argument("--only-weak", action="store_true", help="Run only weak scaling benchmarks")
+    parser.add_argument("--no-w1-row", action="store_true", help="Exclude synthetic w=1 baseline row (not recommended)")
 
     args = parser.parse_args()
 
     os.makedirs(OUTPUT, exist_ok=True)
     steps = args.steps
     dt = args.dt
-    worker_counts = list(args.workers)
+    worker_counts = [w for w in args.workers if w >= 2]
     problem_n = args.problem_n
     base_n = args.base_n
     repeats = args.repeats
@@ -369,17 +401,19 @@ def main():
         print("Both --only-strong and --only-weak specified; nothing to do.")
         return
 
+    include_w1 = not args.no_w1_row
+
     if not args.no_python:
         if not args.only_weak:
-            fit_params["python_strong"] = summarize_strong("python", problem_n, steps, dt, worker_counts, repeats)
+            fit_params["python_strong"] = summarize_strong("python", problem_n, steps, dt, worker_counts, repeats, include_w1=include_w1)
         if not args.only_strong:
-            fit_params["python_weak"] = summarize_weak("python", base_n, steps, dt, worker_counts, repeats)
+            fit_params["python_weak"] = summarize_weak("python", base_n, steps, dt, worker_counts, repeats, include_w1=include_w1)
 
     if not args.no_rust:
         if not args.only_weak:
-            fit_params["rust_strong"] = summarize_strong("rust", problem_n, steps, dt, worker_counts, repeats)
+            fit_params["rust_strong"] = summarize_strong("rust", problem_n, steps, dt, worker_counts, repeats, include_w1=include_w1)
         if not args.only_strong:
-            fit_params["rust_weak"] = summarize_weak("rust", base_n, steps, dt, worker_counts, repeats)
+            fit_params["rust_weak"] = summarize_weak("rust", base_n, steps, dt, worker_counts, repeats, include_w1=include_w1)
 
     # Persist fit parameters
     with open(os.path.join(OUTPUT, "fit_params.json"), "w", encoding="utf-8") as f:

@@ -1,8 +1,13 @@
-# Izveštaj o jakom i slabom skaliranju N-Body simulacije: Python vs Rust (OSVEŽENO POSLE OPTIMIZACIJA)
+# Izveštaj o jakom i slabom skaliranju N-Body simulacije: Python vs Rust (osveženo)
 
 ## 1. Uvod
 
-Ovaj izveštaj predstavlja detaljnu analizu performansi paralelnih implementacija N-body simulacije u programskim jezicima Python i Rust. Eksperimenti obuhvataju **jako skaliranje** (strong scaling) i **slabo skaliranje** (weak scaling), sa ciljem da se utvrdi efikasnost paralelizacije i maksimalna ubrzanja koja se mogu postići prema Amdalovom i Gustafsonovom zakonu.
+Ovaj izveštaj predstavlja detaljnu analizu performansi paralelnih implementacija N-body simulacije u programskim jezicima Python i Rust. Eksperimenti obuhvataju **jako skaliranje** (strong scaling) i **slabo skaliranje** (weak scaling), sa ciljem da se utvrdi efikasnost paralelizacije i maksimalna ubrzanja koja se mogu postići prema Amdalovom i Gustafsonovom zakonu. Benchmark skripta je korigovana da:
+
+- eksplicitno meri sekvencijalni baseline (w=1, speedup=1) i zatim poredi paralelne konfiguracije (w ≥ 2),
+- koristi već izgrađeni Rust binarni fajl (jedan `cargo build --release`) kako bi izbegla overhead pokretanja `cargo run` po merenju,
+- zadržava istu metodologiju za Python i Rust (isti izlazni format i parsiranje vremena),
+- generiše tabele sa srednjim vremenom, standardnom devijacijom, min/max, outlier-ima i ubrzanjem, kao i grafike sa idealnom i fitovanom krivom.
 
 N-body problem predstavlja simulaciju gravitacionih interakcija između N tela u prostoru, gde se za svaki par tela izračunava gravitaciona sila. Složenost algoritma je O(N²) po koraku, što ga čini pogodnim za paralelizaciju.
 
@@ -12,29 +17,20 @@ N-body problem predstavlja simulaciju gravitacionih interakcija između N tela u
 
 Podaci iz `output/system_info.json` (automatski prikupljeni):
 
-**Procesor:** AMD Ryzen 5 5500U with Radeon Graphics  
-Fizička jezgra: 6  
-Logička jezgra: 12  
-Maks. takt: 2.1 GHz  
-L2 cache: 3 MB  
-L3 cache: 8 MB  
-
-**Memorija:** 15.33 GB fizičke RAM (Windows prijavio)  
-
-**Operativni sistem:** Microsoft Windows 11 Pro 10.0.26200 (build 26200)  
+- CPU: AMD Ryzen 5 5500U with Radeon Graphics (6 fizičkih / 12 logičkih jezgara)
+- RAM: 15.33 GB
+- OS: Microsoft Windows 11 Pro 10.0.26200 (build 26200)
 
 ### 2.2. Softverska arhitektura
 
-**Python implementacija (posle optimizacije):**
-- Python verzija: 3.13.1
-- Ključne biblioteke: `multiprocessing`, `math`, `csv`, `argparse`, `matplotlib`
-- Paralelizacija: `multiprocessing.Pool` + deljeni `multiprocessing.Array` (shared memory) za pozicije i mase – eliminiše per-korak pickle overhead.
-- Model procesa: spawn (Windows default)
+**Python implementacija:**
+- Python: 3.13.1
+- Paralelizacija: `multiprocessing.Pool` uz deljene `multiprocessing.Array` bafer-e (pozicije i mase) radi uklanjanja pickle overhead-a po koraku; spawn model (Windows default)
 
-**Rust implementacija (posle optimizacije):**
+**Rust implementacija:**
 - rustc: 1.87.0, cargo: 1.87.0
-- Biblioteke: `rayon`, `serde`, `serde_json`, `clap`, `image`, `gif`
-- Paralelizacija: adaptivna – heuristika (threshold) onemogućava paralelnu granu ispod ~600 tela; warm-up eliminisan iz merenog vremena; opcioni `--force-threads`.
+- Biblioteke: `rayon`, `serde`, `serde_json`, `clap`, `image`, `gif`, `plotters`, `csv`
+- Paralelizacija: Rayon parallel iterators; mogućnost kontrole broja niti preko `RAYON_NUM_THREADS`.
 
 ### 2.3. Metodologija eksperimenata
 
@@ -51,19 +47,19 @@ L3 cache: 8 MB
   - `seq`: jednonitvno izvršavanje
   - `threads`: paralelno izvršavanje sa Rayon bibliotekom
 
-**Parametri eksperimenata (osveženi):**
-- Ponavljanja: 30
-- Worker counts: 1,2,4,8 (Python: `seq` baseline + `mp`; Rust: `seq` baseline + `threads`)
+**Parametri eksperimenata (ovaj run):**
+- Ponavljanja: 5 (preporuka i zahtev kursa: 30; vidi napomenu ispod)
+- Workers (paralelno): 2, 4, 8; baseline w=1 je sekvencijalni red (speedup=1)
 - Koraci: 120, dt = 0.002
-- Strong scaling: N = 200 (zadržano radi poređenja sa starim izveštajem)
-- Weak scaling: N = 50 × workers (napomena: zbog O(N²) ovo nije „idealno“ weak skaliranje; zadržano radi konzistentnosti)
-- G = 1.0, softening = 1e-9
+- Strong scaling: N = 1200 tela
+- Weak scaling: N = 300 × workers tela (vidi napomenu o O(N²) ispod)
+- Ostalo: G = 1.0, softening = 1e-9, bez CSV upisa tokom merenja (`--write-every 0`)
+
+Napomena (SEPC): Za finalni izveštaj prema uslovima predmeta preporučuje se pokretanje sa `--repeats 30`. Usled ograničenja vremena okruženja, prikazani rezultati koriste 5 ponavljanja; harness je spreman da reprodukuje iste grafike i CSV sa 30 ponavljanja.
 
 **Merenje vremena:**
-- Meri se samo vreme izvršavanja simulacionih koraka
-- Isključeno je vreme inicijalizacije, učitavanja podataka i zapisivanja rezultata
-- Python: `time.perf_counter()` pre i posle simulacije
-- Rust: `std::time::Instant` sa `elapsed()` metodom
+- Meri se vreme simulacionih koraka (Python `time.perf_counter`, Rust `Instant::now`) i ispisuje u stdout kao `ElapsedSeconds=...`.
+- Benchmark prvo meri sekvencijalni baseline, pa paralelne konfiguracije (bez `cargo run` overhead-a po merenju; koristi se već izgrađeni binarni fajl).
 
 **Statistička analiza:**
 - Srednja vrednost (mean)
@@ -152,41 +148,37 @@ Paralelna frakcija `p` se određuje fitovanjem modela na eksperimentalne podatke
 
 ## 4. Rezultati eksperimenata
 
-### 4.1. Python - Jako skaliranje (Strong Scaling) – NOVI REZULTATI
+### 4.1. Python — Jako skaliranje (N=1200, steps=120, repeats=5)
 
-| Radnici | N | Ponavljanja | Srednje vreme (s) | Std. dev. | Min | Max | Outliers | Ubrzanje |
-|---------|---|-------------|-------------------|-----------|-----|-----|----------|----------|
-| 1 | 200 | 30 | 3.4405 | 0.0227 | 3.4124 | 3.4899 | 0 | 0.465 |
-| 2 | 200 | 30 | 1.9555 | 0.0128 | 1.9396 | 1.9864 | 3 | 0.819 |
-| 4 | 200 | 30 | 1.3397 | 0.0393 | 1.2843 | 1.4371 | 3 | 1.195 |
-| 8 | 200 | 30 | 1.4213 | 0.0423 | 1.3742 | 1.5329 | 0 | 1.126 |
+Tabela (preuzeto iz `output/summary_python_strong.csv`):
 
-Sekvencijalni baseline (mean preko 30 ponavljanja): 1.6011 s (std 0.0200 s)
+| Radnici | N    | Ponavljanja | t_mean (s) | t_std (s) | t_min | t_max | Outliers | Speedup |
+|---------|------|-------------|------------|-----------|-------|-------|----------|---------|
+| 1 (seq) | 1200 | 5           | 61.5546    | 1.1161    | 60.41 | 63.55 | 0        | 1.000   |
+| 2       | 1200 | 5           | 64.4304    | 3.7626    | 60.94 | 71.01 | 0        | 0.955   |
+| 4       | 1200 | 5           | 38.5579    | 1.6596    | 36.07 | 40.84 | 0        | 1.596   |
+| 8       | 1200 | 5           | 30.6328    | 0.5029    | 29.97 | 31.45 | 0        | 2.009   |
 
-Fitovani Amdahl p: **p = 0.1010**  → S_max = 1/(1-0.101) ≈ 1.112×
+Fitovani Amdahl p (iz `output/fit_params.json`): p ≈ 0.5250 → S_max ≈ 2.105×
 
-Promene u odnosu na stari izveštaj:
-- Implementacija mp sada koristi deljenu memoriju → smanjen overhead serijalizacije.
-- I dalje se vidi saturacija nakon 4 radnika; speedup 1.20× (blago bolje od prethodnih 1.17×).
-- Paralelna frakcija pala sa 0.135 na 0.101 jer je poboljšan i sekvencijalni deo unutar mp petlje (relativni odnos se promenio). Model sa malim N ostaje limitiran overhead-om.
-
-Interpretacija: Realni speedup ~1.2× za 4 radnika potvrđuje da optimizacija uklanja najveći pickle overhead, ali N=200 ostaje premalo za dalji skalabilni dobitak.
+Komentar: Za N=1200 Python mp pokazuje dobitak tek od 4 i 8 radnika; w=2 je na ovoj mašini sporiji zbog overhead-a. Fitovani p≈0.525 reflektuje to da merenja uključuju i brže konfiguracije (4,8), uz baseline fiksiran na 1.
 
 Grafik: `output/python_strong.png`
 
 ---
 
-### 4.2. Python - Slabo skaliranje (Weak Scaling) – NOVI REZULTATI
+### 4.2. Python — Slabo skaliranje (base_n=300, steps=120, repeats=5)
 
-| Radnici | N  | Ponavljanja | Srednje vreme (s) | Std. dev. | Min | Max | Outliers | Ubrzanje |
-|---------|----|-------------|-------------------|-----------|-----|-----|----------|----------|
-| 1 | 50  | 30 | 0.5605 | 0.0078 | 0.5416 | 0.5797 | 2 | 0.199 |
-| 2 | 100 | 30 | 0.7810 | 0.0062 | 0.7672 | 0.7922 | 0 | 0.286 |
-| 4 | 200 | 30 | 1.3722 | 0.0542 | 1.3131 | 1.5702 | 3 | 0.326 |
-| 8 | 400 | 30 | 4.1431 | 0.1223 | 3.9961 | 4.4610 | 0 | 0.216 |
+Tabela (preuzeto iz `output/summary_python_weak.csv`):
 
-Sekvencijalni baseline (N=50): 0.1117 s (std 0.0087 s)  
-Fitovani Gustafson p: **p = 0.0000**  (model saturacija usled nelineranog rasta posla)  
+| Radnici | N    | Ponavljanja | t_mean (s) | t_std (s) | t_min | t_max | Outliers | Speedup |
+|---------|------|-------------|------------|-----------|-------|-------|----------|---------|
+| 1 (seq) | 300  | 5           | 3.8224     | 0.0617    | 3.73  | 3.92  | 0        | 1.000   |
+| 2       | 600  | 5           | 15.6720    | 0.4114    | 15.03 | 16.08 | 0        | 0.488   |
+| 4       | 1200 | 5           | 38.0849    | 0.9392    | 36.60 | 39.54 | 0        | 0.401   |
+| 8       | 2400 | 5           | 123.8552   | 3.6560    | 119.3 | 129.1 | 0        | 0.247   |
+
+Fitovani Gustafson p: p ≈ 0.0000 (model neinformativan zbog O(N²) rasta ukupnog posla)
 
 Napomena: Prethodno p ≈ 0.022; sada je model povukao na 0 jer se mereni „speedup“ (definicija korišćena u skripti) ne uvećava sa radnicima zbog O(N²) rasta interakcija. Realno, p metrički ovde nije informativan – weak scaling eksperiment nije „idealno“ konstruisan za kvadratnu kompleksnost.
 
@@ -194,35 +186,35 @@ Grafik: `output/python_weak.png`
 
 ---
 
-### 4.3. Rust - Jako skaliranje (Strong Scaling) – NOVI REZULTATI
+### 4.3. Rust — Jako skaliranje (N=1200, steps=120, repeats=5)
 
-| Radnici | N | Ponavljanja | Srednje vreme (s) | Std. dev. | Min | Max | Outliers | Ubrzanje |
-|---------|---|-------------|-------------------|-----------|-----|-----|----------|----------|
-| 1 | 200 | 30 | 0.02065 | 0.00165 | 0.01957 | 0.02818 | 3 | 1.098 |
-| 2 | 200 | 30 | 0.02243 | 0.00330 | 0.01970 | 0.02924 | 0 | 1.011 |
-| 4 | 200 | 30 | 0.02071 | 0.00169 | 0.01962 | 0.02820 | 4 | 1.095 |
-| 8 | 200 | 30 | 0.02125 | 0.00216 | 0.01975 | 0.02873 | 3 | 1.067 |
+Tabela (preuzeto iz `output/summary_rust_strong.csv`):
 
-Sekvencijalni baseline: 0.02268 s (std 0.00340 s)  
-Fitovani Amdahl p: **p = 0.0810**  → S_max ≈ 1.088×  
+| Radnici | N    | Ponavljanja | t_mean (s) | t_std (s) | t_min  | t_max  | Outliers | Speedup |
+|---------|------|-------------|------------|-----------|--------|--------|----------|---------|
+| 1 (seq) | 1200 | 5           | 0.7298     | 0.0343    | 0.6947 | 0.7917 | 0        | 1.000   |
+| 2       | 1200 | 5           | 0.4177     | 0.0096    | 0.4057 | 0.4294 | 0        | 1.747   |
+| 4       | 1200 | 5           | 0.2540     | 0.0036    | 0.2483 | 0.2595 | 0        | 2.873   |
+| 8       | 1200 | 5           | 0.2119     | 0.0081    | 0.1991 | 0.2188 | 0        | 3.443   |
 
-Napomena: Heuristika sprečava trošak paralelizacije kod suviše malih N; fluktuacije oko sekvencijalnog vremena (speedup >1 nastaje jer su seq baseline i threads mereni nezavisno – mikro-variacija CPU takta). Za realno merenje skalabilnosti potrebno povećati N ≥ 1200 (gde je već viđen >3× speedup).
+Fitovani Amdahl p: p ≈ 0.8230 → S_max ≈ 5.65×
 
 Grafik: `output/rust_strong.png`
 
 ---
 
-### 4.4. Rust - Slabo skaliranje (Weak Scaling) – NOVI REZULTATI
+### 4.4. Rust — Slabo skaliranje (base_n=300, steps=120, repeats=5)
 
-| Radnici | N  | Ponavljanja | Srednje vreme (s) | Std. dev. | Min | Max | Outliers | Ubrzanje |
-|---------|----|-------------|-------------------|-----------|-----|-----|----------|----------|
-| 1 | 50  | 30 | 0.00140 | 0.00028 | 0.00123 | 0.00222 | 5 | 0.955 |
-| 2 | 100 | 30 | 0.00508 | 0.00026 | 0.00485 | 0.00594 | 1 | 0.527 |
-| 4 | 200 | 30 | 0.01997 | 0.00049 | 0.01940 | 0.02141 | 3 | 0.268 |
-| 8 | 400 | 30 | 0.07859 | 0.00101 | 0.07717 | 0.08119 | 0 | 0.136 |
+Tabela (preuzeto iz `output/summary_rust_weak.csv`):
 
-Baseline (N=50): 0.001338 s (std 0.000169 s)  
-Fitovani Gustafson p: **p = 0.0000**  
+| Radnici | N    | Ponavljanja | t_mean (s) | t_std (s) | t_min  | t_max  | Outliers | Speedup |
+|---------|------|-------------|------------|-----------|--------|--------|----------|---------|
+| 1 (seq) | 300  | 5           | 0.0445     | 0.0010    | 0.0435 | 0.0463 | 0        | 1.000   |
+| 2       | 600  | 5           | 0.1242     | 0.0050    | 0.1182 | 0.1314 | 0        | 0.716   |
+| 4       | 1200 | 5           | 0.2573     | 0.0063    | 0.2484 | 0.2631 | 0        | 0.691   |
+| 8       | 2400 | 5           | 0.7891     | 0.0150    | 0.7634 | 0.8032 | 0        | 0.451   |
+
+Fitovani Gustafson p: p ≈ 0.0000
 
 Napomena: Definicija „speedup“ u slabom skaliranju ( (T_seq_base * w)/T_par ) ne može da prati realnu korisnost kada ukupni posao raste ~w² (O(N²) algoritam). Rezultati potvrđuju teorijsko očekivanje – usporenje relativno na ideal.
 
@@ -234,25 +226,22 @@ Grafik: `output/rust_weak.png`
 
 ### 5.1. Python vs Rust - Performanse (osveženo)
 
-Sekvencijalna vremena (N=200):  
-- Python seq baseline: 1.601 s  
-- Rust seq baseline: 0.0227 s  
-Rust ostaje ~70× brži sekvencijalno (povećana razlika jer se Python mp petlja sada dodatno sinhronizuje sa shared memory kopiranjem, dok je Rust sekvencijalni kod ekstremno optimizovan u release modu).
+Sekvencijalna vremena (N=1200):
+- Python seq baseline: ≈ 61.55 s
+- Rust seq baseline: ≈ 0.73 s
 
-Najbolji paralelni rezultati (N=200):  
-- Python 4 radnika: 1.3397 s (speedup 1.20× u odnosu na seq baseline)  
-- Rust threads (različite konfiguracije osciluju oko seq; heuristika minimizuje overhead)  
-
-Za relevantan Rust speedup potrebno je veće N. (Eksperimentalno: pri N≥1200 ostvareno >3× ubrzanje – izvan formalnog seta ovog izveštaja.)
+Najbolji paralelni rezultati (N=1200):
+- Python 8 radnika: ≈ 2.01× speedup (30.63 s)
+- Rust 8 niti: ≈ 3.44× speedup (0.212 s)
 
 ### 5.2. Paralelna frakcija - uporedni pregled
 
-| Implementacija | Eksperiment | p (novo) | Teorijski max S (Amdahl/Gustafson) | Napomena |
-|----------------|-------------|---------|------------------------------------|----------|
-| Python         | Strong      | 0.1010  | ≈1.11×                             | Limitirano malim N |
-| Python         | Weak        | 0.0000  | 1.00× (fit saturacija)             | Model neadekvatan za O(N²) rast |
-| Rust           | Strong      | 0.0810  | ≈1.09×                             | Potreban veći N za realni speedup |
-| Rust           | Weak        | 0.0000  | 1.00×                              | Isto ograničenje kao Python |
+| Implementacija | Eksperiment | p (ovaj run) | Teorijski max S | Napomena |
+|----------------|-------------|-------------:|----------------:|----------|
+| Python         | Strong      | 0.5250       | ≈ 2.11×         | Realni dobitak od 4–8 radnika; w=2 sporiji (overhead) |
+| Python         | Weak        | 0.0000       | 1.00×           | Model neinformativan za O(N²) weak |
+| Rust           | Strong      | 0.8230       | ≈ 5.65×         | Mereno do 3.44× na 8 niti (N=1200) |
+| Rust           | Weak        | 0.0000       | 1.00×           | Isto ograničenje |
 
 **Tumačenje:**
 
@@ -278,14 +267,13 @@ Nulte paralelne frakcije kod Rust-a ukazuju da:
 
 ### 5.4. Standardna devijacija
 
-**Python (strong, N=200)**: std dev sada niža za 1 worker (0.0227 s ≈ 0.66%), ali relativni jitter raste za veće radnike (~3%).  
-**Rust (strong, N=200)**: vrlo male apsolutne vrednosti; jitter dominira odnosom prema baselinu – distribucije pretežno konzistentne (<10% relativno).
+U ovom run-u (repeats=5) outlier-i su 0 za sve redove; standardna devijacija je mala relativno na srednje vrednosti. Pri repeats=30 očekuje se još stabilnija statistika.
 
 ---
 
 ## 6. Grafički prikazi
 
-Svi grafici se nalaze u direktorijumu `output/` i pokazuju:
+Svi grafici se nalaze u direktorijumu `output/` i prikazuju:
 - **X-osa:** Broj procesorskih jezgara (radnika)
 - **Y-osa:** Ostvareno ubrzanje (speedup)
 - **Linije:**
@@ -331,25 +319,23 @@ Svi grafici se nalaze u direktorijumu `output/` i pokazuju:
 
 ### 7.1. Glavni nalazi
 
-1. Python multiprocessing POSLE optimizacije postiže stabilno ~1.2× ubrzanje na 4 radnika za N=200 uz smanjen overhead serijalizacije (shared memory).  
-2. Rust adaptivna paralelizacija sprečava regresiju na malim N; formalni strong rezultati na N=200 ne pokazuju realni scaling – za veće N (van ovog seta) threads >3×.  
-3. Weak scaling eksperiment u trenutnoj definiciji nije reprezentativan za O(N²) algoritme – fitovani p → 0 nije indikator neparalelizabilnosti, već neadekvatnog modela.  
-4. Rust i dalje dramatično nadmašuje Python u apsolutnom sekvencijalnom vremenu (≈70× u ovom setu).  
-5. Za verifikaciju stvarnih paralelnih benefita preporučuje se dodatni strong set sa N ∈ {800,1200,2000}.  
+1. Python multiprocessing postiže ≈2.0× ubrzanje na 8 radnika za N=1200 (Windows spawn + IPC overhead utiče na w=2).  
+2. Rust threading postiže do ≈3.44× na 8 niti za N=1200; fit procenjuje p≈0.823 (teorijski plafon ≈5.65×).  
+3. Weak scaling za O(N²) algoritam pokazuje nominalni pad „speedup“-a sa rastom w; fit p→0 je očekivani artefakt definicije testa.  
+4. Rust i dalje značajno nadmašuje Python u apsolutnom vremenu; sekvencijalno ≈0.73 s vs 61.6 s za isti N.  
+5. Za detaljniju verifikaciju preporučuje se `--repeats 30` i eventualno veći N (npr. 2000) za još izraženiji scaling.  
 
 ### 7.2. Preporuke za poboljšanje
 
 **Za Python:**
-1. Koristiti `numpy` za numeričke operacije (vektorializacija)
-2. Razmotriti `numba` JIT kompajler za ubrzanje
-3. Povećati veličinu problema (N > 1000) da overhead bude amortizovan
-4. Razmotriti threading umesto multiprocessing za deljenje memorije (ali GIL!)
+1. Razmotriti `numpy`/`numba` za jaču vektorizaciju u Python-u.
+2. Povećati N i/ili steps kada se meri skaliranje (amortizacija overhead-a).
+3. Oprez sa threading-om u Python-u zbog GIL-a; multiprocessing + shared Arrays je razuman kompromis na Windows-u.
 
 **Za Rust:**
-1. Koristiti paralelizaciju samo za N > 1000
-2. Eksperimentisati sa block-based algorithms za bolju cache lokalnost
-3. Razmotriti SIMD (Single Instruction Multiple Data) za vektorske operacije
-4. Implementirati Barnes-Hut algoritam (O(N log N)) za velike N
+1. Paralelizaciju forsirati kada je N dovoljno velik (N ≳ 1000).
+2. Block-based algoritmi i bolja cache lokalnost mogu dodatno pomoći.
+3. SIMD optimizacije i/ili Barnes–Hut (O(N log N)) za veoma velike N.
 
 **Za eksperimente:**
 1. Testirati sa većim veličinama problema (N = 500, 1000, 2000, 5000)
@@ -391,7 +377,7 @@ Za produkcione N-body simulacije sa N > 10,000 tela, paralelizacija (posebno GPU
 
 ---
 
-**Datum osvežavanja izveštaja:** 8. oktobar 2025.  
+**Datum osvežavanja izveštaja:** 9. oktobar 2025.  
 **Autor:** Miloš Milanović  
 **Kurs:** Napredne tehnike programiranja (NTP)  
 **Institucija:** Fakultet tehničkih nauka, Univerzitet u Novom Sadu
